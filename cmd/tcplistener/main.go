@@ -1,52 +1,15 @@
 package main
 
 import (
-	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net"
-	"strings"
+
+	"github.com/nikbonk/httpfromtcp/internal/request"
 )
 
 const inputFilePath = "messages.txt"
 const listenerPort = ":42069"
-
-func getLinesChannel(f io.ReadCloser) <-chan string {
-	lines := make(chan string)
-	go func() {
-		defer f.Close()
-		defer close(lines)
-
-		currentLineContents := ""
-		for {
-			buffer := make([]byte, 8, 8)
-			n, err := f.Read(buffer)
-			if err != nil {
-				if currentLineContents != "" {
-					lines <- currentLineContents
-					currentLineContents = ""
-				}
-				if errors.Is(err, io.EOF) {
-					break
-				}
-				fmt.Printf("error: %s\n", err.Error())
-				break
-			}
-
-			str := string(buffer[:n])
-			parts := strings.Split(str, "\n")
-
-			for i := 0; i < len(parts)-1; i++ {
-				lines <- currentLineContents + parts[i]
-				currentLineContents = ""
-			}
-			currentLineContents += parts[len(parts)-1]
-		}
-
-	}()
-	return lines
-}
 
 func main() {
 	listener, err := net.Listen("tcp", listenerPort)
@@ -62,10 +25,19 @@ func main() {
 			log.Fatal(err)
 		}
 		fmt.Printf("accepted connection from %v\n", conn.RemoteAddr())
-		lines := getLinesChannel(conn)
-		for line := range lines {
-			fmt.Println(line)
+		req, err := request.RequestFromReader(conn)
+		if err != nil {
+			fmt.Print(err)
+			return
 		}
+		fmt.Print("Request line:")
+		fmt.Printf(
+			"\n- Method: %v\n- Target: %v\n- Version: %v\n",
+			req.RequestLine.Method,
+			req.RequestLine.RequestTarget,
+			req.RequestLine.HttpVersion,
+		)
+
 		fmt.Printf("closed connection from %v\n", conn.RemoteAddr())
 	}
 }

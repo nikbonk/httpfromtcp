@@ -50,6 +50,12 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 	return idx + len(clrf), false, nil
 }
 func (h Headers) Set(name, value string) {
+	_, ok := h[name]
+	if ok {
+		existingValue := h[name]
+		h[name] = existingValue + ", " + value
+		return
+	}
 	h[name] = value
 }
 

@@ -59,6 +59,12 @@ func (h Headers) Set(name, value string) {
 	h[name] = value
 }
 
+func (h Headers) Get(key string) (string, bool) {
+	key = strings.ToLower(key)
+	v, ok := h[key]
+	return v, ok
+}
+
 func isAllowedString(header string) bool {
 	for _, char := range header {
 		if ('a' <= char && char <= 'z') || ('A' <= char && char <= 'Z') || ('0' <= char && char <= '9') || strings.ContainsRune(allowedSpecialChars, char) {

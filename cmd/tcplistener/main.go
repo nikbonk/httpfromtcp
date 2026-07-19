@@ -43,6 +43,9 @@ func main() {
 			fmt.Printf("- %s: %s\n", key, values)
 		}
 
+		fmt.Println("Body:")
+		fmt.Println(string(req.Body))
+
 		fmt.Printf("closed connection from %v\n", conn.RemoteAddr())
 	}
 }
@@ -54,4 +57,5 @@ func main() {
 // Headers:
 // - KEY: VALUE
 // - KEY: VALUE
-// ...
+// Body:
+// BODY_STRING

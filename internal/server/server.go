@@ -1,32 +1,49 @@
 package server
 
 import (
-	"log"
+	"bytes"
+	"fmt"
+	"io"
 	"net"
-	"strconv"
 	"sync/atomic"
 
+	"github.com/nikbonk/httpfromtcp/internal/request"
 	"github.com/nikbonk/httpfromtcp/internal/response"
 )
 
+type Handler func(w io.Writer, req *request.Request) *HandlerError
+
+type HandlerError struct {
+	StatusCode response.StatusCode
+	Message    string
+}
+
+func (he HandlerError) Write(w io.Writer) {
+	response.WriteStatusLine(w, he.StatusCode)
+	messageBytes := []byte(he.Message)
+	headers := response.GetDefaultHeaders(len(messageBytes))
+	response.WriteHeaders(w, headers)
+	w.Write(messageBytes)
+}
+
+// Server is an HTTP 1.1 server
 type Server struct {
+	handler  Handler
 	listener net.Listener
 	closed   atomic.Bool
 }
 
-func Serve(port int) (*Server, error) {
-	listenerPort := ":" + strconv.Itoa(port)
-	listener, err := net.Listen("tcp", listenerPort)
+func Serve(port int, handler Handler) (*Server, error) {
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return nil, err
 	}
-	server := &Server{
+	s := &Server{
+		handler:  handler,
 		listener: listener,
-		closed:   atomic.Bool{},
 	}
-	go server.listen()
-
-	return server, nil
+	go s.listen()
+	return s, nil
 }
 
 func (s *Server) Close() error {
@@ -48,17 +65,25 @@ func (s *Server) listen() {
 
 func (s *Server) handle(conn net.Conn) {
 	defer conn.Close()
-	err := response.WriteStatusLine(conn, response.StatusCodeOK)
+	req, err := request.RequestFromReader(conn)
 	if err != nil {
-		log.Println(err)
+		hErr := &HandlerError{
+			StatusCode: response.StatusCodeBadRequest,
+			Message:    err.Error(),
+		}
+		hErr.Write(conn)
 		return
 	}
-	contentLen := 0
-	headers := response.GetDefaultHeaders(contentLen)
-	err = response.WriteHeaders(conn, headers)
-	if err != nil {
-		log.Println(err)
+	buf := bytes.NewBuffer([]byte{})
+	hErr := s.handler(buf, req)
+	if hErr != nil {
+		hErr.Write(conn)
 		return
 	}
-
+	b := buf.Bytes()
+	response.WriteStatusLine(conn, response.StatusCodeSuccess)
+	headers := response.GetDefaultHeaders(len(b))
+	response.WriteHeaders(conn, headers)
+	conn.Write(b)
+	return
 }

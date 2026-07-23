@@ -10,7 +10,7 @@ import (
 type StatusCode int
 
 const (
-	StatusCodeOK                  StatusCode = 200
+	StatusCodeSuccess             StatusCode = 200
 	StatusCodeBadRequest          StatusCode = 400
 	StatusCodeInternalServerError StatusCode = 500
 )
@@ -22,7 +22,7 @@ func WriteStatusLine(w io.Writer, statusCode StatusCode) error {
 
 	statusCodeString = strconv.Itoa(int(statusCode))
 	switch statusCode {
-	case StatusCodeOK:
+	case StatusCodeSuccess:
 		reasonPhrase = "OK"
 	case StatusCodeBadRequest:
 		reasonPhrase = "Bad Request"

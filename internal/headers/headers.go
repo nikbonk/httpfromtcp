@@ -2,61 +2,46 @@ package headers
 
 import (
 	"bytes"
-	"errors"
+	"fmt"
+	"slices"
 	"strings"
-	"unicode"
 )
+
+const crlf = "\r\n"
 
 type Headers map[string]string
 
-const (
-	clrf                = "\r\n"
-	allowedSpecialChars = "!#$%&'*+-.^_`|~"
-)
-
 func NewHeaders() Headers {
-	return make(Headers)
+	return map[string]string{}
 }
 
 func (h Headers) Parse(data []byte) (n int, done bool, err error) {
-	idx := bytes.Index(data, []byte(clrf))
+	// print the data with crlf encoding
+
+	idx := bytes.Index(data, []byte(crlf))
 	if idx == -1 {
 		return 0, false, nil
 	}
 	if idx == 0 {
-		return idx + len(clrf), true, nil
-	}
-	headerText := data[:idx]
-	normalizedHeaderText := strings.TrimLeftFunc(string(headerText), unicode.IsSpace)
-	if len(normalizedHeaderText) < len(headerText) {
-		return 0, false, errors.New("header text starts with space")
-	}
-	normalizedHeaderText = strings.TrimFunc(normalizedHeaderText, unicode.IsSpace)
-	headerParts := strings.SplitN(normalizedHeaderText, ":", 2)
-	if len(headerParts) != 2 {
-		return 0, false, errors.New("invalid header format")
-	}
-	headerName := strings.TrimSpace(headerParts[0])
-	if len(headerName) < len(headerParts[0]) {
-		return 0, false, errors.New("header name includes spaces")
-	}
-	headerName = strings.ToLower(headerName)
-	if !isAllowedString(headerName) {
-		return 0, false, errors.New("header name contains invalid characters")
+		// the empty line
+		// headers are done, consume the CRLF
+		return 2, true, nil
 	}
 
-	headerValue := strings.TrimSpace(headerParts[1])
-	h.Set(headerName, headerValue)
-	return idx + len(clrf), false, nil
-}
-func (h Headers) Set(name, value string) {
-	_, ok := h[name]
-	if ok {
-		existingValue := h[name]
-		h[name] = existingValue + ", " + value
-		return
+	parts := bytes.SplitN(data[:idx], []byte(":"), 2)
+	key := strings.ToLower(string(parts[0]))
+
+	if strings.ContainsAny(key, " \t") {
+		return 0, false, fmt.Errorf("invalid header name: %s", key)
 	}
-	h[name] = value
+
+	value := bytes.TrimSpace(parts[1])
+	key = strings.TrimSpace(key)
+	if !validTokens([]byte(key)) {
+		return 0, false, fmt.Errorf("invalid header token found: %s", key)
+	}
+	h.Set(key, string(value))
+	return idx + 2, false, nil
 }
 
 func (h Headers) Get(key string) (string, bool) {
@@ -65,12 +50,42 @@ func (h Headers) Get(key string) (string, bool) {
 	return v, ok
 }
 
-func isAllowedString(header string) bool {
-	for _, char := range header {
-		if ('a' <= char && char <= 'z') || ('A' <= char && char <= 'Z') || ('0' <= char && char <= '9') || strings.ContainsRune(allowedSpecialChars, char) {
-			continue
+func (h Headers) Set(key, value string) {
+	key = strings.ToLower(key)
+	v, ok := h[key]
+	if ok {
+		value = strings.Join([]string{
+			v,
+			value,
+		}, ", ")
+	}
+	h[key] = value
+}
+
+func (h Headers) Override(key, value string) {
+	key = strings.ToLower(key)
+	h[key] = value
+}
+
+var tokenChars = []byte{'!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '^', '_', '`', '|', '~'}
+
+// validTokens checks if the data contains only valid tokens
+// or characters that are allowed in a token
+func validTokens(data []byte) bool {
+	for _, c := range data {
+		if !isTokenChar(c) {
+			return false
 		}
-		return false
 	}
 	return true
+}
+
+func isTokenChar(c byte) bool {
+	if c >= 'A' && c <= 'Z' ||
+		c >= 'a' && c <= 'z' ||
+		c >= '0' && c <= '9' {
+		return true
+	}
+
+	return slices.Contains(tokenChars, c)
 }

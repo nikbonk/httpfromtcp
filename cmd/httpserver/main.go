@@ -1,14 +1,18 @@
 package main
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 
+	"github.com/nikbonk/httpfromtcp/internal/headers"
 	"github.com/nikbonk/httpfromtcp/internal/request"
 	"github.com/nikbonk/httpfromtcp/internal/response"
 	"github.com/nikbonk/httpfromtcp/internal/server"
@@ -104,12 +108,6 @@ func handler200(w *response.Writer, _ *request.Request) {
 }
 
 func handlerHttpbin(w *response.Writer, req *request.Request) {
-	w.WriteStatusLine(response.StatusCodeSuccess)
-	h := response.GetDefaultHeaders(0)
-	delete(h, "content-length")
-	h.Set("Transfer-Encoding", "chunked")
-	w.WriteHeaders(h)
-
 	target := strings.TrimPrefix(req.RequestLine.RequestTarget, "/httpbin/")
 	url := "https://httpbin.org/" + target
 	resp, err := http.Get(url)
@@ -120,10 +118,24 @@ func handlerHttpbin(w *response.Writer, req *request.Request) {
 	defer resp.Body.Close()
 
 	buf := make([]byte, 1024)
+
+	w.WriteStatusLine(response.StatusCodeSuccess)
+	h := response.GetDefaultHeaders(0)
+	delete(h, "content-length")
+	h.Set("Transfer-Encoding", "chunked")
+	if strings.HasPrefix(target, "html") {
+		h.Set("Trailer", "X-Content-SHA256, X-Content-Length")
+	}
+	w.WriteHeaders(h)
+
+	fullResponseLen := 0
+	fullBody := make([]byte, 0)
 	for {
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
 			w.WriteChunkedBody(buf[:n])
+			fullResponseLen += n
+			fullBody = append(fullBody, buf[:n]...)
 		}
 		if err != nil {
 			if err == io.EOF {
@@ -133,5 +145,15 @@ func handlerHttpbin(w *response.Writer, req *request.Request) {
 		}
 	}
 	w.WriteChunkedBodyDone()
+
+	fullResponseHash := sha256.Sum256(fullBody)
+	hashText := fmt.Sprintf("%x", fullResponseHash)
+
+	if strings.HasPrefix(target, "html") {
+		trailers := headers.NewHeaders()
+		trailers.Set("X-Content-SHA256", hashText)
+		trailers.Set("X-Content-Length", strconv.Itoa(fullResponseLen))
+		w.WriteTrailers(trailers)
+	}
 
 }
